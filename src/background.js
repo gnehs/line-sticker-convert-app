@@ -16,7 +16,8 @@ const isMac = process.platform === 'darwin'
 // Keep a global reference of the window object, if you don't, the window will
 // be closed automatically when the JavaScript object is garbage collected.
 let win
-
+if (!isMac)
+  Menu.setApplicationMenu(null);
 // Scheme must be registered before the app is ready
 protocol.registerSchemesAsPrivileged([{
   scheme: 'app',
@@ -88,7 +89,6 @@ app.on('ready', async () => {
   }
   createWindow()
 })
-
 // Exit cleanly on request from parent process in development mode.
 if (isDevelopment) {
   if (process.platform === 'win32') {
