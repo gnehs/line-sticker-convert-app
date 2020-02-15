@@ -88,6 +88,26 @@
 		<div class="lc-container" v-if="step=='convert'">
 			<div class="my-3 p-3">
 				<h1 class="display-4">正在轉換</h1>
+				<div
+					class="media text-muted pt-3"
+					v-for="(file,i) in filesDone"
+					:key="file.uuid"
+					:alt="file.path"
+				>
+					<div class="file-icon mr-2" :data-type="file.extension"></div>
+					<div
+						class="media-body pb-3 mb-0 small lh-125 border-gray"
+						:class="{'border-bottom':i!=filesDone.length-1}"
+					>
+						<div class="d-flex justify-content-between align-items-center w-100">
+							<div>
+								<strong class="text-gray-dark">{{file.name}}</strong>
+								<span class="d-block">{{file.parsedSize}}</span>
+							</div>
+							<div>完成</div>
+						</div>
+					</div>
+				</div>
 				<div class="media text-muted pt-3" v-for="(file,i) in files" :key="file.uuid" :alt="file.path">
 					<div class="file-icon mr-2" :data-type="file.extension"></div>
 					<div
@@ -99,8 +119,7 @@
 								<strong class="text-gray-dark">{{file.name}}</strong>
 								<span class="d-block">{{file.parsedSize}}</span>
 							</div>
-							<div v-if="!file.done">轉換中...</div>
-							<div v-if="file.done">完成</div>
+							<div>轉換中...</div>
 						</div>
 					</div>
 				</div>
@@ -127,6 +146,16 @@
 						<button type="button" class="btn btn-outline-light" @click="step='import'">上一步</button>
 
 						<button type="button" class="btn btn-outline-light" @click="startConvert">開始轉換</button>
+					</div>
+				</div>
+				<div class="form-inline my-lg-0" v-if="step=='convert'">
+					<div class="btn-group">
+						<button
+							type="button"
+							class="btn btn-outline-light"
+							:disabled="files.length>0"
+							@click="clear"
+						>完成</button>
 					</div>
 				</div>
 			</div>
@@ -164,6 +193,7 @@
 const { dialog, app } = require('electron').remote;
 const { execFile } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 export default {
 	name: 'Home',
 	components: {
@@ -176,7 +206,9 @@ export default {
 		dragging: false,
 		//step: options
 		saveType: 'source',
-		saveFolder: null
+		saveFolder: null,
+		//step: convert
+		filesDone: []
 	}),
 	methods: {
 		//step: import
@@ -241,7 +273,7 @@ export default {
 			}
 		},
 		//step: convert
-		startConvert() {
+		async startConvert() {
 			this.step = 'convert'
 			for (let file of this.files) {
 				let filePath, outputFilePath, tempFilePath
@@ -253,26 +285,95 @@ export default {
 				else {
 					outputFilePath = path.join(path.dirname(this.saveFolder), path.basename(file.path, path.extname(file.path)) + '.png')
 				}
-				execFile('node', ['./src/assets/parseFile.js', filePath, outputFilePath, tempFilePath], (error, stdout, stderr) => {
-					if (error) {
-						throw error;
-					}
-					console.log(stdout);
-					stdout = JSON.parse(stdout)
-					this.fileDone(file.uuid)
-					this.$toasted.show(`✅ 轉換完畢 ${path.extname(file.path)} (${stdout.metadata.width}x${stdout.metadata.height})`, {
+				try {
+					await this.parseFile({
+						filePath,
+						outputFilePath,
+						tempFilePath
+					})
+					this.$toasted.show(`✅ 轉換完畢 ${file.name}`, {
 						theme: "toasted-primary",
 						position: "top-center",
 						duration: 2000
 					});
-				})
+				} catch (e) {
+					this.$toasted.show(`Ｘ 轉換錯誤 ${file.name}`, {
+						theme: "toasted-primary",
+						position: "top-center",
+						duration: 2000
+					});
+					console.error(e)
+				}
+
+				this.fileDone(file.uuid)
+
+
+
 			}
 		},
 		fileDone(uuid) {
-			this.files = this.files.map(x => {
-				if (x.uuid == uuid) x.done = true
-				return x
-			})
+			this.filesDone.push(this.files.filter(x => x.uuid == uuid)[0])
+			this.files = this.files.filter(x => x.uuid != uuid)
+		},
+		clear() {
+			this.step = "import"
+			this.filesDone = []
+			this.files = []
+		},
+		async parseFile({
+			filePath,
+			outputFilePath,
+			tempFilePath
+		}) {
+			let canvas = document.createElement("canvas")
+			var img = new Image;
+			if (filePath.endsWith('.psd')) {
+				await PSD.fromURL(filePath).then(function (psd) {
+					img.src = 'data:image/png;base64,' + psd.image.toPng().toString('base64');
+				});
+			} else {
+				img.src = 'data:image/png;base64,' + fs.readFileSync(filePath).toString('base64');
+			}
+			await this.onload2promise(img)
+			var MAX_WIDTH = 360;
+			var MAX_HEIGHT = 310;
+			let width = img.width;
+			let height = img.height;
+			console.log(width, height)
+			if (width > height) {
+				if (width > MAX_WIDTH) {
+					height *= MAX_WIDTH / width;
+					width = MAX_WIDTH;
+				}
+			} else {
+				if (height > MAX_HEIGHT) {
+					width *= MAX_HEIGHT / height;
+					height = MAX_HEIGHT;
+				}
+			}
+
+
+
+			canvas.width = width + 10;
+			canvas.height = height + 10;
+			var ctx = canvas.getContext("2d");
+			ctx.drawImage(img, 5, 5, width, height);
+
+
+			fs.writeFile(outputFilePath, canvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, ""), 'base64', function (err) {
+				console.log(err);
+			});
+
+			if (filePath.endsWith('.psd')) {
+				await fs.unlinkSync(tempFilePath);
+			}
+
+		},
+		onload2promise(obj) {
+			return new Promise((resolve, reject) => {
+				obj.onload = () => resolve(obj);
+				obj.onerror = reject;
+			});
 		}
 	}
 }

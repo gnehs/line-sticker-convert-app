@@ -1,44 +1,46 @@
-const sharp = require('sharp');
-const PSD = require('psd');
+const PSD = require('psd-parser');
 const fs = require('fs');
-const path = require('path');
 async function parseFile({
     filePath,
     outputFilePath,
     tempFilePath
 }) {
-    let imgData
+
+    let img = document.createElement("img");
+    let canvas = document.createElement("canvas");
     if (filePath.endsWith('.psd')) {
-        let psd = PSD.fromFile(filePath)
-        await psd.parse()
-        await psd.image.saveAsPng(tempFilePath)
-        imgData = sharp(tempFilePath)
+        let psd = PSD.parse(filePath)
+        await psd.saveAsPng(tempFilePath)
+        img.src = tempFilePath
     } else {
-        imgData = sharp(filePath)
+        img.src = filePath
     }
-    // 縮放大小
-    let metadata = await imgData.metadata()
-    imgData = sharp(await imgData.trim().resize(370 - 10, 320 - 10, {
-        fit: 'inside'
-    }).toBuffer())
+    var MAX_WIDTH = 360;
+    var MAX_HEIGHT = 310;
+    var width = img.width;
+    var height = img.height;
 
-    // 擴張
-    metadata = await imgData.metadata()
-    imgData = sharp(await imgData.extend({
-        top: 5,
-        bottom: metadata.height % 2 == 0 ? 5 : 4,
-        left: metadata.width % 2 == 0 ? 5 : 4,
-        right: 5,
-        background: {
-            r: 0,
-            g: 0,
-            b: 0,
-            alpha: 0
+    if (width > height) {
+        if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
         }
-    }).toBuffer())
-    metadata = await imgData.metadata()
+    } else {
+        if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+        }
+    }
 
-    await imgData.toFile(outputFilePath);
+
+
+    canvas.width = width + 10;
+    canvas.height = height + 10;
+    var ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 5, 5, width, height);
+
+    fs.writeFileSync(outputFilePath, canvas.toBlob())
+
     if (filePath.endsWith('.psd')) {
         await fs.unlinkSync(tempFilePath);
     }
@@ -48,7 +50,8 @@ async function parseFile({
         metadata
     }))
 }
-try {
+exports.default = parseFile
+/*try {
     parseFile({
         filePath: process.argv[2],
         outputFilePath: process.argv[3],
@@ -56,4 +59,4 @@ try {
     })
 } catch (error) {
     throw error
-}
+}*/
